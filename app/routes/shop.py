@@ -140,9 +140,52 @@ def add_to_cart(product_id):
     flash('Product added to cart', 'success')
     return redirect(url_for('shop.cart'))
 
-@bp.route('/cart/remove/<int:product_id>')
+@bp.route('/cart/add-ajax', methods=['POST'])
+@login_required
+def add_to_cart_ajax():
+    try:
+        data = request.get_json()
+        product_id = data.get('product_id')
+        quantity = int(data.get('quantity', 1))
+        
+        product = Product.query.get_or_404(product_id)
+        
+        if quantity > product.stock:
+            return jsonify({'success': False, 'message': 'Not enough stock available'})
+        
+        cart_item = CartItem.query.filter_by(
+            user_id=current_user.id,
+            product_id=product_id
+        ).first()
+        
+        if cart_item:
+            cart_item.quantity += quantity
+        else:
+            cart_item = CartItem(
+                user_id=current_user.id,
+                product_id=product_id,
+                quantity=quantity
+            )
+            db.session.add(cart_item)
+        
+        db.session.commit()
+        
+        # Calculate cart count after update
+        cart_count = db.session.query(func.sum(CartItem.quantity)).filter_by(user_id=current_user.id).scalar() or 0
+        
+        return jsonify({
+            'success': True, 
+            'message': 'Product added to cart', 
+            'cart_count': cart_count
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@bp.route('/cart/remove/<int:product_id>', methods=['POST'])
 @login_required
 def remove_from_cart(product_id):
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    
     cart_item = CartItem.query.filter_by(
         user_id=current_user.id,
         product_id=product_id
@@ -151,8 +194,22 @@ def remove_from_cart(product_id):
     db.session.delete(cart_item)
     db.session.commit()
     
-    flash('Product removed from cart', 'success')
-    return redirect(url_for('shop.cart'))
+    if is_ajax:
+        # Calculate updated cart count and total
+        cart_count = db.session.query(func.sum(CartItem.quantity)).filter_by(user_id=current_user.id).scalar() or 0
+        cart_total = db.session.query(func.sum(Product.price * CartItem.quantity)).\
+            join(CartItem, Product.id == CartItem.product_id).\
+            filter(CartItem.user_id == current_user.id).scalar() or 0
+            
+        return jsonify({
+            'success': True, 
+            'message': 'Product removed from cart',
+            'cart_count': cart_count,
+            'cart_total': round(cart_total, 2)
+        })
+    else:
+        flash('Product removed from cart', 'success')
+        return redirect(url_for('shop.cart'))
 
 @bp.route('/cart/update/<int:product_id>', methods=['POST'])
 @login_required
@@ -169,9 +226,17 @@ def update_cart(product_id):
     cart_item.quantity = quantity
     db.session.commit()
     
+    # Calculate updated cart info
+    cart_count = db.session.query(func.sum(CartItem.quantity)).filter_by(user_id=current_user.id).scalar() or 0
+    cart_total = db.session.query(func.sum(Product.price * CartItem.quantity)).\
+        join(CartItem, Product.id == CartItem.product_id).\
+        filter(CartItem.user_id == current_user.id).scalar() or 0
+        
     return jsonify({
         'quantity': cart_item.quantity,
-        'subtotal': cart_item.quantity * cart_item.product.price
+        'subtotal': round(cart_item.quantity * cart_item.product.price, 2),
+        'cart_count': cart_count,
+        'cart_total': round(cart_total, 2)
     })
 
 @bp.route('/checkout')
@@ -247,4 +312,14 @@ def order_confirmation(order_id):
 @login_required
 def order_history():
     orders = Order.query.filter_by(user_id=current_user.id).order_by(Order.created_at.desc()).all()
-    return render_template('shop/order_history.html', orders=orders) 
+    return render_template('shop/order_history.html', orders=orders)
+
+@bp.route('/cart/count', methods=['GET'])
+def cart_count():
+    if not current_user.is_authenticated:
+        return jsonify({'success': True, 'cart_count': 0})
+    
+    cart_items = CartItem.query.filter_by(user_id=current_user.id).all()
+    cart_count = sum(item.quantity for item in cart_items)
+    
+    return jsonify({'success': True, 'cart_count': cart_count}) 

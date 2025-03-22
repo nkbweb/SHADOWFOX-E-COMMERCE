@@ -17,6 +17,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Setup remove from cart buttons
     setupRemoveFromCartButtons();
+    
+    // Update cart count on page load
+    updateCartCountFromServer();
+    
+    // Add animations to product cards
+    animateProductCards();
+    
+    // Setup category filters if they exist
+    setupCategoryFilters();
+    
+    // Add scroll animations
+    addScrollAnimations();
+    
+    // Add newsletter form handler
+    setupNewsletterForm();
 });
 
 function setupQuantityButtons() {
@@ -48,6 +63,12 @@ function setupAddToCartForm() {
         
         const productId = form.getAttribute('data-product-id');
         const quantity = document.getElementById('quantity-input').value;
+        const addButton = form.querySelector('button[type="submit"]');
+        
+        // Change button state
+        const originalText = addButton.innerHTML;
+        addButton.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Adding...';
+        addButton.disabled = true;
         
         fetch('/cart/add', {
             method: 'POST',
@@ -65,6 +86,9 @@ function setupAddToCartForm() {
             if (data.success) {
                 showToast('Product added to cart!', 'success');
                 updateCartCount(data.cart_count);
+                
+                // Add a nice animation to the cart icon
+                animateCartIcon();
             } else {
                 showToast(data.message || 'Failed to add product to cart.', 'danger');
             }
@@ -72,6 +96,13 @@ function setupAddToCartForm() {
         .catch(error => {
             console.error('Error adding to cart:', error);
             showToast('An error occurred. Please try again.', 'danger');
+        })
+        .finally(() => {
+            // Restore button state
+            setTimeout(() => {
+                addButton.innerHTML = originalText;
+                addButton.disabled = false;
+            }, 500);
         });
     });
 }
@@ -82,6 +113,11 @@ function setupRemoveFromCartButtons() {
         button.addEventListener('click', function(e) {
             e.preventDefault();
             const productId = this.getAttribute('data-product-id');
+            const cartItem = this.closest('.cart-item');
+            
+            if (cartItem) {
+                cartItem.style.opacity = '0.5';
+            }
             
             fetch(`/cart/remove/${productId}`, {
                 method: 'POST',
@@ -92,28 +128,67 @@ function setupRemoveFromCartButtons() {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    const cartItem = this.closest('.cart-item');
                     if (cartItem) {
-                        cartItem.remove();
-                    }
-                    updateCartTotal(data.cart_total);
-                    updateCartCount(data.cart_count);
-                    
-                    if (data.cart_count === 0) {
-                        document.querySelector('.cart-items').innerHTML = '<p class="text-center my-5">Your cart is empty</p>';
-                        document.querySelector('.cart-summary').style.display = 'none';
+                        cartItem.style.height = cartItem.offsetHeight + 'px';
+                        setTimeout(() => {
+                            cartItem.style.height = '0';
+                            cartItem.style.margin = '0';
+                            cartItem.style.padding = '0';
+                            cartItem.style.overflow = 'hidden';
+                            
+                            setTimeout(() => {
+                                cartItem.remove();
+                                updateCartTotal(data.cart_total);
+                                updateCartCount(data.cart_count);
+                                
+                                if (data.cart_count === 0) {
+                                    const cartItemsContainer = document.querySelector('.cart-items');
+                                    if (cartItemsContainer) {
+                                        cartItemsContainer.innerHTML = '<div class="text-center my-5"><i class="fas fa-shopping-cart fa-3x mb-3 text-muted"></i><p>Your cart is empty</p><a href="/products" class="btn btn-primary">Continue Shopping</a></div>';
+                                    }
+                                    const cartSummary = document.querySelector('.cart-summary');
+                                    if (cartSummary) {
+                                        cartSummary.style.display = 'none';
+                                    }
+                                }
+                            }, 300);
+                        }, 10);
                     }
                     
                     showToast('Product removed from cart!', 'success');
                 } else {
+                    if (cartItem) {
+                        cartItem.style.opacity = '1';
+                    }
                     showToast(data.message || 'Failed to remove product from cart.', 'danger');
                 }
             })
             .catch(error => {
                 console.error('Error removing from cart:', error);
+                if (cartItem) {
+                    cartItem.style.opacity = '1';
+                }
                 showToast('An error occurred. Please try again.', 'danger');
             });
         });
+    });
+}
+
+function updateCartCountFromServer() {
+    fetch('/cart/count', {
+        method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateCartCount(data.cart_count);
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching cart count:', error);
     });
 }
 
@@ -121,6 +196,11 @@ function updateCartCount(count) {
     const cartCountElem = document.getElementById('cart-count');
     if (cartCountElem) {
         cartCountElem.textContent = count;
+        if (count > 0) {
+            cartCountElem.style.display = 'inline-block';
+        } else {
+            cartCountElem.style.display = 'none';
+        }
     }
 }
 
@@ -138,6 +218,7 @@ function showToast(message, type) {
         const newContainer = document.createElement('div');
         newContainer.id = 'toast-container';
         newContainer.className = 'position-fixed bottom-0 end-0 p-3';
+        newContainer.style.zIndex = '1050';
         document.body.appendChild(newContainer);
     }
     
@@ -170,5 +251,124 @@ function showToast(message, type) {
     
     toast.addEventListener('hidden.bs.toast', function() {
         toast.remove();
+    });
+}
+
+function animateCartIcon() {
+    const cartIcon = document.querySelector('.nav-link [class*="fa-shopping-cart"]');
+    if (cartIcon) {
+        cartIcon.classList.add('fa-bounce');
+        setTimeout(() => {
+            cartIcon.classList.remove('fa-bounce');
+        }, 1000);
+    }
+}
+
+function animateProductCards() {
+    const productCards = document.querySelectorAll('.product-card');
+    if (productCards.length > 0) {
+        productCards.forEach((card, index) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+            
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, 100 + (index * 50));
+        });
+    }
+}
+
+function setupCategoryFilters() {
+    const categoryPills = document.querySelectorAll('.category-pill');
+    if (categoryPills.length > 0) {
+        categoryPills.forEach(pill => {
+            pill.addEventListener('click', function() {
+                const category = this.getAttribute('data-category');
+                
+                // Update active state
+                document.querySelectorAll('.category-pill').forEach(p => {
+                    p.classList.remove('active');
+                });
+                this.classList.add('active');
+                
+                // Filter products
+                const products = document.querySelectorAll('.product-card');
+                products.forEach(product => {
+                    const productCategory = product.getAttribute('data-category');
+                    
+                    if (category === 'all' || productCategory === category) {
+                        product.style.display = 'block';
+                        setTimeout(() => {
+                            product.style.opacity = '1';
+                            product.style.transform = 'translateY(0)';
+                        }, 50);
+                    } else {
+                        product.style.opacity = '0';
+                        product.style.transform = 'translateY(20px)';
+                        setTimeout(() => {
+                            product.style.display = 'none';
+                        }, 300);
+                    }
+                });
+            });
+        });
+    }
+}
+
+function addScrollAnimations() {
+    // Fade in elements as they scroll into view
+    const animateOnScroll = () => {
+        const elements = document.querySelectorAll('.fade-in-element');
+        
+        elements.forEach(element => {
+            const elementPosition = element.getBoundingClientRect().top;
+            const screenPosition = window.innerHeight;
+            
+            if (elementPosition < screenPosition - 100) {
+                element.classList.add('active');
+            }
+        });
+    };
+    
+    // Add the class to elements we want to animate
+    document.querySelectorAll('.hero h1, .hero p, .hero .btn, .section-title, .admin-card').forEach(el => {
+        el.classList.add('fade-in-element');
+    });
+    
+    // Initial check on page load
+    setTimeout(animateOnScroll, 300);
+    
+    // Check on scroll
+    window.addEventListener('scroll', animateOnScroll);
+}
+
+function setupNewsletterForm() {
+    const newsletterForms = document.querySelectorAll('form.newsletter-form, footer .input-group');
+    
+    newsletterForms.forEach(form => {
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const emailInput = form.querySelector('input[type="email"]');
+            if (emailInput && emailInput.value) {
+                const submitBtn = form.querySelector('button[type="submit"], button');
+                const originalText = submitBtn.innerHTML;
+                
+                submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>';
+                submitBtn.disabled = true;
+                
+                // Simulate subscription (replace with actual API call)
+                setTimeout(() => {
+                    showToast('Thanks for subscribing to our newsletter!', 'success');
+                    emailInput.value = '';
+                    submitBtn.innerHTML = originalText;
+                    submitBtn.disabled = false;
+                }, 1000);
+            } else {
+                showToast('Please enter a valid email address', 'warning');
+            }
+        });
     });
 } 
